@@ -6,6 +6,7 @@ import { supabase } from "./config/supabase";
 import multer from 'multer';
 import authRoutes from './routes/authRoutes';
 import fileRoutes from './routes/fileRoutes';
+import folderRoutes from './routes/folderRoutes';
 
 dotenv.config();
 
@@ -16,6 +17,7 @@ app.use(cookieParser());
 
 app.use('/api/auth',authRoutes);
 app.use('/api/files', fileRoutes);
+app.use('/api/folders', folderRoutes);
 
 //handle multer's file-size-exceeded error gracefully instead of it crashing/returning a generic 500
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

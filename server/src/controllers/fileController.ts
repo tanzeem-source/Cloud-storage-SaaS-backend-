@@ -84,3 +84,130 @@ export async function uploadFile(req: AuthRequest, res: Response, next: NextFunc
     next(err);
   }
 }
+
+
+// RENAME file
+export async function renameFile(req: AuthRequest, res: Response) {
+  try {
+    const { id } = req.params;
+    const { name } = req.body;
+    const userId = req.userId!;
+
+    if (!name) {
+      return res.status(400).json({ error: 'New name is required' });
+    }
+
+    const { data: file, error } = await supabase
+      .from('files')
+      .update({ name, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .eq('owner_id', userId)
+      .select()
+      .single();
+
+    if (error || !file) {
+      return res.status(404).json({ error: 'File not found or not yours' });
+    }
+
+    res.json({ file });
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+// SOFT DELETE file (move to trash)
+export async function deleteFile(req: AuthRequest, res: Response) {
+  try {
+    const { id } = req.params;
+    const userId = req.userId!;
+
+    const { data: file, error } = await supabase
+      .from('files')
+      .update({ is_deleted: true, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .eq('owner_id', userId)
+      .select()
+      .single();
+
+    if (error || !file) {
+      return res.status(404).json({ error: 'File not found or not yours' });
+    }
+
+    res.json({ message: 'File moved to trash', file });
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+// RESTORE file from trash
+export async function restoreFile(req: AuthRequest, res: Response) {
+  try {
+    const { id } = req.params;
+    const userId = req.userId!;
+
+    const { data: file, error } = await supabase
+      .from('files')
+      .update({ is_deleted: false, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .eq('owner_id', userId)
+      .select()
+      .single();
+
+    if (error || !file) {
+      return res.status(404).json({ error: 'File not found or not yours' });
+    }
+
+    res.json({ message: 'File restored', file });
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+// LIST trash (files + folders where is_deleted = true)
+export async function getTrash(req: AuthRequest, res: Response) {
+  try {
+    const userId = req.userId!;
+
+    const { data: files } = await supabase
+      .from('files')
+      .select('*')
+      .eq('owner_id', userId)
+      .eq('is_deleted', true);
+
+    const { data: folders } = await supabase
+      .from('folders')
+      .select('*')
+      .eq('owner_id', userId)
+      .eq('is_deleted', true);
+
+    res.json({ files, folders });
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+// PERMANENT DELETE (actually removes from storage + DB — separate from soft delete)
+export async function permanentlyDeleteFile(req: AuthRequest, res: Response) {
+  try {
+    const { id } = req.params;
+    const userId = req.userId!;
+
+    const { data: file } = await supabase
+      .from('files')
+      .select('storage_key')
+      .eq('id', id)
+      .eq('owner_id', userId)
+      .single();
+
+    if (!file) {
+      return res.status(404).json({ error: 'File not found or not yours' });
+    }
+
+    await supabase.storage.from('user-files').remove([file.storage_key]);
+    await supabase.from('files').delete().eq('id', id);
+
+    res.json({ message: 'File permanently deleted' });
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
