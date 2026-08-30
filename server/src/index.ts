@@ -8,6 +8,7 @@ import authRoutes from './routes/authRoutes';
 import fileRoutes from './routes/fileRoutes';
 import folderRoutes from './routes/folderRoutes';
 import shareRoutes from './routes/shareRoutes';
+import searchRoutes from './routes/searchRoutes';
 
 dotenv.config();
 
@@ -20,6 +21,7 @@ app.use('/api/auth',authRoutes);
 app.use('/api/files', fileRoutes);
 app.use('/api/folders', folderRoutes);
 app.use('/api/shares', shareRoutes);
+app.use('/api/search', searchRoutes);
 
 //handle multer's file-size-exceeded error gracefully instead of it crashing/returning a generic 500
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

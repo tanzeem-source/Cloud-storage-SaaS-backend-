@@ -29,32 +29,62 @@ export async function createFolder(req: AuthRequest, res: Response) {
   }
 }
 
-// LIST folder contents (subfolders + files inside a given folder)
+// LIST folder contents (subfolders + files inside a given folder + pagination added)
 export async function getFolderContents(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
     const folderId = req.params.id === 'root' ? null : req.params.id;
 
-    const { data: folders, error: folderErr } = await supabase
-      .from('folders')
-      .select('*')
-      .eq('owner_id', userId)
-      .eq('is_deleted', false)
-      .is('parent_id', folderId);
+    const folderPage = parseInt((req.query.folderPage as string) || '1', 10);
+    const folderLimit = Math.min(parseInt((req.query.folderLimit as string) || '50', 10), 100);
+    const folderOffset = (folderPage - 1) * folderLimit;
 
-    const { data: files, error: fileErr } = await supabase
-      .from('files')
-      .select('*')
+    const filePage = parseInt((req.query.filePage as string) || '1', 10);
+    const fileLimit = Math.min(parseInt((req.query.fileLimit as string) || '50', 10), 100);
+    const fileOffset = (filePage - 1) * fileLimit;
+
+    const { data: folders, error: folderErr, count: folderCount } = await supabase
+      .from('folders')
+      .select('*', { count: 'exact' })
       .eq('owner_id', userId)
       .eq('is_deleted', false)
-      .is('folder_id', folderId);
+      .is('parent_id', folderId)
+      .order('name', { ascending: true })
+      .range(folderOffset, folderOffset + folderLimit - 1);
+
+    const { data: files, error: fileErr, count: fileCount } = await supabase
+      .from('files')
+      .select('*', { count: 'exact' })
+      .eq('owner_id', userId)
+      .eq('is_deleted', false)
+      .is('folder_id', folderId)
+      .order('name', { ascending: true })
+      .range(fileOffset, fileOffset + fileLimit - 1);
 
     if (folderErr || fileErr) {
       return res.status(500).json({ error: 'Failed to fetch contents' });
     }
 
-    res.json({ folders, files });
+    res.json({
+      folders,
+      files,
+      pagination: {
+        folders: {
+          page: folderPage,
+          limit: folderLimit,
+          total: folderCount,
+          totalPages: folderCount ? Math.ceil(folderCount / folderLimit) : 0,
+        },
+        files: {
+          page: filePage,
+          limit: fileLimit,
+          total: fileCount,
+          totalPages: fileCount ? Math.ceil(fileCount / fileLimit) : 0,
+        },
+      },
+    });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: 'Internal server error' });
   }
 }
@@ -169,3 +199,8 @@ export async function restoreFolder(req: AuthRequest, res: Response) {
     res.status(500).json({ error: 'Internal server error' });
   }
 }
+
+
+
+
+   
