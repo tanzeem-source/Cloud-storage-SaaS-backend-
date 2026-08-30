@@ -2,6 +2,8 @@ import { Response, NextFunction } from 'express';
 import { randomUUID, createHash } from 'crypto';
 import { supabase } from '../config/supabase';
 import { AuthRequest } from '../middleware/auth';
+import { getUserAccessRole } from '../utils/permissions';
+import { getSignedUrl } from '../utils/storage';
 
 const BUCKET = 'user-files';
 
@@ -89,7 +91,7 @@ export async function uploadFile(req: AuthRequest, res: Response, next: NextFunc
 // RENAME file
 export async function renameFile(req: AuthRequest, res: Response) {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
     const { name } = req.body;
     const userId = req.userId!;
 
@@ -97,16 +99,20 @@ export async function renameFile(req: AuthRequest, res: Response) {
       return res.status(400).json({ error: 'New name is required' });
     }
 
+    const role = await getUserAccessRole(userId, 'file', id);
+    if (role !== 'owner' && role !== 'editor') {
+      return res.status(403).json({ error: 'You do not have permission to rename this file' });
+    }
+
     const { data: file, error } = await supabase
       .from('files')
       .update({ name, updated_at: new Date().toISOString() })
       .eq('id', id)
-      .eq('owner_id', userId)
       .select()
       .single();
 
     if (error || !file) {
-      return res.status(404).json({ error: 'File not found or not yours' });
+      return res.status(404).json({ error: 'File not found' });
     }
 
     res.json({ file });
@@ -118,19 +124,23 @@ export async function renameFile(req: AuthRequest, res: Response) {
 // SOFT DELETE file (move to trash)
 export async function deleteFile(req: AuthRequest, res: Response) {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
     const userId = req.userId!;
+
+    const role = await getUserAccessRole(userId, 'file', id);
+    if (role !== 'owner' && role !== 'editor') {
+      return res.status(403).json({ error: 'You do not have permission to delete this file' });
+    }
 
     const { data: file, error } = await supabase
       .from('files')
       .update({ is_deleted: true, updated_at: new Date().toISOString() })
       .eq('id', id)
-      .eq('owner_id', userId)
       .select()
       .single();
 
     if (error || !file) {
-      return res.status(404).json({ error: 'File not found or not yours' });
+      return res.status(404).json({ error: 'File not found' });
     }
 
     res.json({ message: 'File moved to trash', file });
@@ -142,19 +152,23 @@ export async function deleteFile(req: AuthRequest, res: Response) {
 // RESTORE file from trash
 export async function restoreFile(req: AuthRequest, res: Response) {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
     const userId = req.userId!;
+
+    const role = await getUserAccessRole(userId, 'file', id);
+    if (role !== 'owner' && role !== 'editor') {
+      return res.status(403).json({ error: 'You do not have permission to restore this file' });
+    }
 
     const { data: file, error } = await supabase
       .from('files')
       .update({ is_deleted: false, updated_at: new Date().toISOString() })
       .eq('id', id)
-      .eq('owner_id', userId)
       .select()
       .single();
 
     if (error || !file) {
-      return res.status(404).json({ error: 'File not found or not yours' });
+      return res.status(404).json({ error: 'File not found' });
     }
 
     res.json({ message: 'File restored', file });
@@ -189,24 +203,49 @@ export async function getTrash(req: AuthRequest, res: Response) {
 // PERMANENT DELETE (actually removes from storage + DB — separate from soft delete)
 export async function permanentlyDeleteFile(req: AuthRequest, res: Response) {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
     const userId = req.userId!;
+
+    const role = await getUserAccessRole(userId, 'file', id);
+    if (role !== 'owner' && role !== 'editor') {
+      return res.status(403).json({ error: 'You do not have permission to permanently delete this file' });
+    }
 
     const { data: file } = await supabase
       .from('files')
       .select('storage_key')
       .eq('id', id)
-      .eq('owner_id', userId)
       .single();
 
     if (!file) {
-      return res.status(404).json({ error: 'File not found or not yours' });
+      return res.status(404).json({ error: 'File not found' });
     }
 
     await supabase.storage.from('user-files').remove([file.storage_key]);
     await supabase.from('files').delete().eq('id', id);
 
     res.json({ message: 'File permanently deleted' });
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+
+export async function getFileDownloadUrl(req: AuthRequest, res: Response) {
+  try {
+    const id  = req.params.id as string;
+    const userId = req.userId!;
+
+    const role = await getUserAccessRole(userId, 'file', id);
+    if (!role) {
+      return res.status(403).json({ error: 'You do not have access to this file' });
+    }
+
+    const { data: file } = await supabase.from('files').select('*').eq('id', id).single();
+    if (!file) return res.status(404).json({ error: 'File not found' });
+
+    const signedUrl = await getSignedUrl(file.storage_key);
+    res.json({ downloadUrl: signedUrl, expiresIn: 300 });
   } catch (err) {
     res.status(500).json({ error: 'Internal server error' });
   }

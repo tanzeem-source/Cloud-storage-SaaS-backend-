@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { supabase } from '../config/supabase';
 import { AuthRequest } from '../middleware/auth';
+import { getUserAccessRole } from '../utils/permissions';
 
 // CREATE folder
 export async function createFolder(req: AuthRequest, res: Response) {
@@ -61,7 +62,7 @@ export async function getFolderContents(req: AuthRequest, res: Response) {
 // RENAME folder
 export async function renameFolder(req: AuthRequest, res: Response) {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
     const { name } = req.body;
     const userId = req.userId!;
 
@@ -69,16 +70,20 @@ export async function renameFolder(req: AuthRequest, res: Response) {
       return res.status(400).json({ error: 'New name is required' });
     }
 
+    const role = await getUserAccessRole(userId, 'folder', id);
+    if (role !== 'owner' && role !== 'editor') {
+      return res.status(403).json({ error: 'You do not have permission to rename this folder' });
+    }
+
     const { data: folder, error } = await supabase
       .from('folders')
       .update({ name, updated_at: new Date().toISOString() })
       .eq('id', id)
-      .eq('owner_id', userId) // ensures users can't rename others' folders
       .select()
       .single();
 
     if (error || !folder) {
-      return res.status(404).json({ error: 'Folder not found or not yours' });
+      return res.status(404).json({ error: 'Folder not found' });
     }
 
     res.json({ folder });
@@ -90,26 +95,25 @@ export async function renameFolder(req: AuthRequest, res: Response) {
 // SOFT DELETE folder (move to trash)
 export async function deleteFolder(req: AuthRequest, res: Response) {
   try {
-    const  id  = req.params.id as string;
+    const id = req.params.id as string;
     const userId = req.userId!;
 
-    // Recursively trash all nested subfolders and files
+    const role = await getUserAccessRole(userId, 'folder', id);
+    if (role !== 'owner' && role !== 'editor') {
+      return res.status(403).json({ error: 'You do not have permission to delete this folder' });
+    }
+
     async function cascadeTrash(folderId: string) {
-      // Trash files directly inside this folder
       await supabase
         .from('files')
         .update({ is_deleted: true, updated_at: new Date().toISOString() })
-        .eq('folder_id', folderId)
-        .eq('owner_id', userId);
+        .eq('folder_id', folderId);
 
-      // Find direct subfolders
       const { data: subfolders } = await supabase
         .from('folders')
         .select('id')
-        .eq('parent_id', folderId)
-        .eq('owner_id', userId);
+        .eq('parent_id', folderId);
 
-      // Trash each subfolder and recurse into it
       for (const sub of subfolders || []) {
         await supabase
           .from('folders')
@@ -123,12 +127,11 @@ export async function deleteFolder(req: AuthRequest, res: Response) {
       .from('folders')
       .update({ is_deleted: true, updated_at: new Date().toISOString() })
       .eq('id', id)
-      .eq('owner_id', userId)
       .select()
       .single();
 
     if (error || !folder) {
-      return res.status(404).json({ error: 'Folder not found or not yours' });
+      return res.status(404).json({ error: 'Folder not found' });
     }
 
     await cascadeTrash(id);
@@ -142,19 +145,23 @@ export async function deleteFolder(req: AuthRequest, res: Response) {
 // RESTORE folder from trash
 export async function restoreFolder(req: AuthRequest, res: Response) {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
     const userId = req.userId!;
+
+    const role = await getUserAccessRole(userId, 'folder', id);
+    if (role !== 'owner' && role !== 'editor') {
+      return res.status(403).json({ error: 'You do not have permission to restore this folder' });
+    }
 
     const { data: folder, error } = await supabase
       .from('folders')
       .update({ is_deleted: false, updated_at: new Date().toISOString() })
       .eq('id', id)
-      .eq('owner_id', userId)
       .select()
       .single();
 
     if (error || !folder) {
-      return res.status(404).json({ error: 'Folder not found or not yours' });
+      return res.status(404).json({ error: 'Folder not found' });
     }
 
     res.json({ message: 'Folder restored', folder });
