@@ -4,11 +4,11 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-  "dev": "ts-node-dev --respawn src/index.ts",
-  "build": "tsc",
-  "start": "node dist/index.js",
-  "test": "jest"
-},
+    "dev": "ts-node-dev --respawn src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "jest"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",
@@ -35,6 +35,8 @@
     "@types/multer": "^2.2.0",
     "@types/node": "^26.2.0",
     "@types/supertest": "^7.2.1",
+    "@vercel/node": "^10.0.0",
+    "autocannon": "^8.0.0",
     "jest": "^30.5.0",
     "supertest": "^7.2.2",
     "ts-jest": "^29.4.12",
