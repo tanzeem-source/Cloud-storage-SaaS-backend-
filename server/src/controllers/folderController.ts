@@ -1,7 +1,7 @@
-import { Response } from 'express';
-import { supabase } from '../config/supabase';
-import { AuthRequest } from '../middleware/auth';
-import { getUserAccessRole } from '../utils/permissions';
+import { Response } from "express";
+import { supabase } from "../config/supabase";
+import { AuthRequest } from "../middleware/auth";
+import { getUserAccessRole } from "../utils/permissions";
 
 // CREATE folder
 export async function createFolder(req: AuthRequest, res: Response) {
@@ -10,59 +10,85 @@ export async function createFolder(req: AuthRequest, res: Response) {
     const userId = req.userId!;
 
     if (!name) {
-      return res.status(400).json({ error: 'Folder name is required' });
+      return res.status(400).json({ error: "Folder name is required" });
     }
 
     const { data: folder, error } = await supabase
-      .from('folders')
+      .from("folders")
       .insert({ name, owner_id: userId, parent_id: parent_id || null })
       .select()
       .single();
 
     if (error || !folder) {
-      return res.status(500).json({ error: 'Failed to create folder', details: error?.message });
+      return res
+        .status(500)
+        .json({ error: "Failed to create folder", details: error?.message });
     }
 
     res.status(201).json({ folder });
   } catch (err) {
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: "Internal server error" });
   }
 }
 
 // LIST folder contents (subfolders + files inside a given folder + pagination added)
+
 export async function getFolderContents(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const folderId = req.params.id === 'root' ? null : req.params.id;
-
-    const folderPage = parseInt((req.query.folderPage as string) || '1', 10);
-    const folderLimit = Math.min(parseInt((req.query.folderLimit as string) || '50', 10), 100);
+    const folderId = req.params.id === "root" ? null : req.params.id;
+    const folderPage = parseInt((req.query.folderPage as string) || "1", 10);
+    const folderLimit = Math.min(
+      parseInt((req.query.folderLimit as string) || "50", 10),
+      100,
+    );
     const folderOffset = (folderPage - 1) * folderLimit;
-
-    const filePage = parseInt((req.query.filePage as string) || '1', 10);
-    const fileLimit = Math.min(parseInt((req.query.fileLimit as string) || '50', 10), 100);
+    const filePage = parseInt((req.query.filePage as string) || "1", 10);
+    const fileLimit = Math.min(
+      parseInt((req.query.fileLimit as string) || "50", 10),
+      100,
+    );
     const fileOffset = (filePage - 1) * fileLimit;
 
-    const { data: folders, error: folderErr, count: folderCount } = await supabase
-      .from('folders')
-      .select('*', { count: 'exact' })
-      .eq('owner_id', userId)
-      .eq('is_deleted', false)
-      .is('parent_id', folderId)
-      .order('name', { ascending: true })
+    let folderQuery = supabase
+      .from("folders")
+      .select("*", { count: "exact" })
+      .eq("owner_id", userId)
+      .eq("is_deleted", false);
+    folderQuery =
+      folderId === null
+        ? folderQuery.is("parent_id", null)
+        : folderQuery.eq("parent_id", folderId);
+
+    let fileQuery = supabase
+      .from("files")
+      .select("*", { count: "exact" })
+      .eq("owner_id", userId)
+      .eq("is_deleted", false);
+    fileQuery =
+      folderId === null
+        ? fileQuery.is("folder_id", null)
+        : fileQuery.eq("folder_id", folderId);
+
+    const {
+      data: folders,
+      error: folderErr,
+      count: folderCount,
+    } = await folderQuery
+      .order("name", { ascending: true })
       .range(folderOffset, folderOffset + folderLimit - 1);
 
-    const { data: files, error: fileErr, count: fileCount } = await supabase
-      .from('files')
-      .select('*', { count: 'exact' })
-      .eq('owner_id', userId)
-      .eq('is_deleted', false)
-      .is('folder_id', folderId)
-      .order('name', { ascending: true })
+    const {
+      data: files,
+      error: fileErr,
+      count: fileCount,
+    } = await fileQuery
+      .order("name", { ascending: true })
       .range(fileOffset, fileOffset + fileLimit - 1);
 
     if (folderErr || fileErr) {
-      return res.status(500).json({ error: 'Failed to fetch contents' });
+      console.error(folderErr || fileErr);
+      return res.status(500).json({ error: "Failed to fetch contents" });
     }
 
     res.json({
@@ -85,7 +111,7 @@ export async function getFolderContents(req: AuthRequest, res: Response) {
     });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: "Internal server error" });
   }
 }
 
@@ -97,28 +123,30 @@ export async function renameFolder(req: AuthRequest, res: Response) {
     const userId = req.userId!;
 
     if (!name) {
-      return res.status(400).json({ error: 'New name is required' });
+      return res.status(400).json({ error: "New name is required" });
     }
 
-    const role = await getUserAccessRole(userId, 'folder', id);
-    if (role !== 'owner' && role !== 'editor') {
-      return res.status(403).json({ error: 'You do not have permission to rename this folder' });
+    const role = await getUserAccessRole(userId, "folder", id);
+    if (role !== "owner" && role !== "editor") {
+      return res
+        .status(403)
+        .json({ error: "You do not have permission to rename this folder" });
     }
 
     const { data: folder, error } = await supabase
-      .from('folders')
+      .from("folders")
       .update({ name, updated_at: new Date().toISOString() })
-      .eq('id', id)
+      .eq("id", id)
       .select()
       .single();
 
     if (error || !folder) {
-      return res.status(404).json({ error: 'Folder not found' });
+      return res.status(404).json({ error: "Folder not found" });
     }
 
     res.json({ folder });
   } catch (err) {
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: "Internal server error" });
   }
 }
 
@@ -128,47 +156,49 @@ export async function deleteFolder(req: AuthRequest, res: Response) {
     const id = req.params.id as string;
     const userId = req.userId!;
 
-    const role = await getUserAccessRole(userId, 'folder', id);
-    if (role !== 'owner' && role !== 'editor') {
-      return res.status(403).json({ error: 'You do not have permission to delete this folder' });
+    const role = await getUserAccessRole(userId, "folder", id);
+    if (role !== "owner" && role !== "editor") {
+      return res
+        .status(403)
+        .json({ error: "You do not have permission to delete this folder" });
     }
 
     async function cascadeTrash(folderId: string) {
       await supabase
-        .from('files')
+        .from("files")
         .update({ is_deleted: true, updated_at: new Date().toISOString() })
-        .eq('folder_id', folderId);
+        .eq("folder_id", folderId);
 
       const { data: subfolders } = await supabase
-        .from('folders')
-        .select('id')
-        .eq('parent_id', folderId);
+        .from("folders")
+        .select("id")
+        .eq("parent_id", folderId);
 
       for (const sub of subfolders || []) {
         await supabase
-          .from('folders')
+          .from("folders")
           .update({ is_deleted: true, updated_at: new Date().toISOString() })
-          .eq('id', sub.id);
+          .eq("id", sub.id);
         await cascadeTrash(sub.id);
       }
     }
 
     const { data: folder, error } = await supabase
-      .from('folders')
+      .from("folders")
       .update({ is_deleted: true, updated_at: new Date().toISOString() })
-      .eq('id', id)
+      .eq("id", id)
       .select()
       .single();
 
     if (error || !folder) {
-      return res.status(404).json({ error: 'Folder not found' });
+      return res.status(404).json({ error: "Folder not found" });
     }
 
     await cascadeTrash(id);
 
-    res.json({ message: 'Folder and its contents moved to trash', folder });
+    res.json({ message: "Folder and its contents moved to trash", folder });
   } catch (err) {
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: "Internal server error" });
   }
 }
 
@@ -178,29 +208,26 @@ export async function restoreFolder(req: AuthRequest, res: Response) {
     const id = req.params.id as string;
     const userId = req.userId!;
 
-    const role = await getUserAccessRole(userId, 'folder', id);
-    if (role !== 'owner' && role !== 'editor') {
-      return res.status(403).json({ error: 'You do not have permission to restore this folder' });
+    const role = await getUserAccessRole(userId, "folder", id);
+    if (role !== "owner" && role !== "editor") {
+      return res
+        .status(403)
+        .json({ error: "You do not have permission to restore this folder" });
     }
 
     const { data: folder, error } = await supabase
-      .from('folders')
+      .from("folders")
       .update({ is_deleted: false, updated_at: new Date().toISOString() })
-      .eq('id', id)
+      .eq("id", id)
       .select()
       .single();
 
     if (error || !folder) {
-      return res.status(404).json({ error: 'Folder not found' });
+      return res.status(404).json({ error: "Folder not found" });
     }
 
-    res.json({ message: 'Folder restored', folder });
+    res.json({ message: "Folder restored", folder });
   } catch (err) {
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: "Internal server error" });
   }
 }
-
-
-
-
-   

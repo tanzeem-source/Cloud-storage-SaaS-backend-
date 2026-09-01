@@ -53,3 +53,4 @@ export async function searchFiles(req: AuthRequest, res: Response) {
     res.status(500).json({ error: 'Internal server error' });
   }
 }
+
