@@ -204,3 +204,91 @@ export async function openLinkShare(req: AuthRequest, res: Response) {
     return res.status(500).json({ error: 'Internal server error' });
   }
 }
+
+
+// LIST all shares (per-user + link) for a resource
+export async function listShares(req: AuthRequest, res: Response) {
+  try {
+    const userId = req.userId!;
+    const resourceType = req.params.resourceType as 'file' | 'folder';
+    const resourceId = req.params.resourceId as string;
+
+    const accessRole = await getUserAccessRole(userId, resourceType as 'file' | 'folder', resourceId);
+    if (accessRole !== 'owner') {
+      return res.status(403).json({ error: 'Only the owner can view sharing details' });
+    }
+
+    const { data: userShares } = await supabase
+      .from('shares')
+      .select('id, role, created_at, grantee_user_id, users:grantee_user_id(email, name)')
+      .eq('resource_type', resourceType)
+      .eq('resource_id', resourceId);
+
+    const { data: linkShares } = await supabase
+      .from('link_shares')
+      .select('id, token, role, expires_at, password_hash, created_at')
+      .eq('resource_type', resourceType)
+      .eq('resource_id', resourceId);
+
+    res.json({
+      userShares: userShares || [],
+      linkShares: (linkShares || []).map((l) => ({ ...l, hasPassword: !!l.password_hash, password_hash: undefined })),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+// UPDATE a share's role
+export async function updateShareRole(req: AuthRequest, res: Response) {
+  try {
+    const userId = req.userId!;
+    const { id } = req.params;
+    const { role } = req.body;
+
+    if (!['viewer', 'editor'].includes(role)) {
+      return res.status(400).json({ error: 'Role must be viewer or editor' });
+    }
+
+    const { data: share } = await supabase.from('shares').select('created_by').eq('id', id).single();
+    if (!share || share.created_by !== userId) {
+      return res.status(404).json({ error: 'Share not found or not yours to modify' });
+    }
+
+    const { data: updated, error } = await supabase
+      .from('shares')
+      .update({ role })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error || !updated) {
+      return res.status(500).json({ error: 'Failed to update role' });
+    }
+
+    res.json({ share: updated });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+// REVOKE a link share
+export async function revokeLinkShare(req: AuthRequest, res: Response) {
+  try {
+    const userId = req.userId!;
+    const { id } = req.params;
+
+    const { data: link } = await supabase.from('link_shares').select('created_by').eq('id', id).single();
+    if (!link || link.created_by !== userId) {
+      return res.status(404).json({ error: 'Link not found or not yours to revoke' });
+    }
+
+    await supabase.from('link_shares').delete().eq('id', id);
+    res.json({ message: 'Link revoked' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
