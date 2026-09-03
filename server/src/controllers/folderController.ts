@@ -50,6 +50,16 @@ export async function getFolderContents(req: AuthRequest, res: Response) {
     );
     const fileOffset = (filePage - 1) * fileLimit;
 
+    const allowedSort = ["name", "size_bytes", "created_at"];
+    const sortBy = allowedSort.includes(req.query.sort as string)
+      ? (req.query.sort as string)
+      : "name";
+    const order =
+      (req.query.order as string) === "desc"
+        ? { ascending: false }
+        : { ascending: true };
+    const folderSortBy = sortBy === "size_bytes" ? "name" : sortBy; // folders have no size_bytes column
+
     let folderQuery = supabase
       .from("folders")
       .select("*", { count: "exact" })
@@ -75,7 +85,7 @@ export async function getFolderContents(req: AuthRequest, res: Response) {
       error: folderErr,
       count: folderCount,
     } = await folderQuery
-      .order("name", { ascending: true })
+      .order(folderSortBy, order)
       .range(folderOffset, folderOffset + folderLimit - 1);
 
     const {
@@ -83,7 +93,7 @@ export async function getFolderContents(req: AuthRequest, res: Response) {
       error: fileErr,
       count: fileCount,
     } = await fileQuery
-      .order("name", { ascending: true })
+      .order(sortBy, order)
       .range(fileOffset, fileOffset + fileLimit - 1);
 
     if (folderErr || fileErr) {
